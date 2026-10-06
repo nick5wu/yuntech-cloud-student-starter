@@ -14,7 +14,7 @@ W3 的服務只會回答「我還活著」。這週讓它能**收一筆巡檢事
 | 名詞 | 一句話 |
 |---|---|
 | Stop／Start | Stop 是關機保留磁碟；Start 時會拿到**新的**公開位址（本課不用固定位址 EIP，每次 Start 後重新查） |
-| 控制通道（control plane） | 對 AWS 下指令（開關、查詢主機），看你的 AWS 憑證，不經過 SG |
+| 控制通道（control plane） | 對 AWS   下指令（開關、查詢主機），看你的 AWS 憑證，不經過 SG |
 | 資料通道（data plane） | 直接連主機上的服務（HTTP、SSH），要過路由、SG、服務 |
 | 腳本部署 | 用腳本把**某一個 commit** 裝到主機上；不手動進主機改檔案 |
 | HTTP 方法（method）、路徑（path） | 要做什麼（GET 讀、POST 新增）、對哪個東西（`/events`） |

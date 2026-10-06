@@ -1,4 +1,8 @@
 """Offline ownership checks for W3 resource cleanup."""
+from argparse import Namespace
+import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -59,6 +63,43 @@ class W03ResourceOwnership(unittest.TestCase):
                     "us-east-1", INSTANCE_ID, incomplete, CONFIG
                 )
         self.assertEqual(aws.call_count, 3)
+
+    def test_import_key_pair_uses_fileb_public_key_path(self):
+        class StopAfterKeyImport(Exception):
+            pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            public_key = root / "test.pub"
+            public_key.write_text("ssh-ed25519 AAAATEST fixture\n", encoding="utf-8")
+            config = {
+                "region": "us-east-1", "vpc_id": "vpc-test", "subnet_id": "subnet-test",
+                "ami_id": "ami-test", "source_cidr": "192.0.2.1/32", "group": "g06",
+                "owner": "6", "key_name": "w03-g06-6", "public_key_path": str(public_key),
+            }
+            config_path = root / "config.json"
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            args = Namespace(
+                config=str(config_path), resources=str(root / "resources.json"),
+                commit="a" * 40, user_data=str(root / "user-data.sh"),
+            )
+            calls = []
+
+            def fake_aws(arguments, region):
+                calls.append(arguments)
+                if arguments[1] == "import-key-pair":
+                    return {"KeyPairId": "key-test"}
+                raise StopAfterKeyImport
+
+            with patch.object(w03_resources.lab, "verify", return_value={"region": "us-east-1"}), \
+                 patch.object(w03_resources, "describe_network"), \
+                 patch.object(w03_resources.lab, "approve"), \
+                 patch.object(w03_resources, "aws_json", side_effect=fake_aws):
+                with self.assertRaises(StopAfterKeyImport):
+                    w03_resources.up(args)
+
+            argument_index = calls[0].index("--public-key-material") + 1
+            self.assertEqual(calls[0][argument_index], "fileb://" + str(public_key.resolve()))
 
 
 if __name__ == "__main__":

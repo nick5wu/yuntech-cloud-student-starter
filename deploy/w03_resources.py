@@ -140,8 +140,7 @@ def up(args):
     print("Cleanup: deploy/down.sh delete (terminate this instance and remove its SG/key pair; volume and ENI are instance-owned).")
     lab.approve("No AWS resource has been created yet.", "CREATE-W03")
 
-    key_material = public_key.read_text(encoding="utf-8").strip()
-    key = aws_json(["ec2", "import-key-pair", "--key-name", config["key_name"], "--public-key-material", key_material,
+    key = aws_json(["ec2", "import-key-pair", "--key-name", config["key_name"], "--public-key-material", "fileb://" + str(public_key.resolve()),
                     "--tag-specifications", tag_spec("key-pair", config)], ctx["region"])
     resources = {"region": ctx["region"], "commit": args.commit, "key_name": config["key_name"],
                  "key_pair_id": key.get("KeyPairId"), "tags": tags(config)}

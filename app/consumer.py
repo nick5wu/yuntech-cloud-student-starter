@@ -11,12 +11,15 @@ import urllib.request
 try:
     import paho.mqtt.client as mqtt
     from paho.mqtt.enums import CallbackAPIVersion
+    HAVE_PAHO = True
 except ImportError:
-    print("paho-mqtt 2.1.0 required", file=sys.stderr)
-    sys.exit(1)
+    HAVE_PAHO = False
 
 
 def main():
+    if not HAVE_PAHO:
+        print("paho-mqtt 2.1.0 required. Run: python3 -m pip install --user paho-mqtt==2.1.0", file=sys.stderr)
+        sys.exit(1)
     endpoint = os.environ.get("IOT_ENDPOINT")
     topic = os.environ.get("IOT_TOPIC")
     client_id = os.environ.get("IOT_CLIENT_ID")

@@ -124,8 +124,9 @@ def main():
     full_app_env = "\n".join(env_lines) + "\n"
 
     # 6. Build user-data package
-    with tempfile.NamedTemporaryFile(prefix="user-data-", suffix=".sh", delete=False) as tf:
-        tmp_ud_path = Path(tf.name)
+    tmp_ud_path = Path(tempfile.gettempdir()) / f"user-data-{os.getpid()}-{int(time.time())}.sh"
+    if tmp_ud_path.exists():
+        tmp_ud_path.unlink()
     try:
         subprocess.check_call([sys.executable, str(ROOT / "deploy/make_user_data.py"), commit_sha, str(tmp_ud_path)], cwd=ROOT)
         ud_content = tmp_ud_path.read_text(encoding="utf-8")

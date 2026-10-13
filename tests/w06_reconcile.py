@@ -100,9 +100,9 @@ def main():
 
     print(f"consumer_counts: created={counts['created']} duplicate={counts['duplicate']} rejected={counts['rejected']} error={counts['error']}")
 
-    # Database count via psql
-    psql_cmd = f"""sudo bash -c 'set -a; . /etc/inspection/app.env; set +a; PGPASSWORD="$DB_PASSWORD" psql "host=$DB_HOST dbname=$DB_NAME user=$DB_USER sslmode=verify-full sslrootcert=/etc/inspection/rds-ca.pem" -v prefix="{prefix}-" -t -A -c "SELECT count(*) FROM events WHERE left(event_id, length(:'"'prefix'"')) = :'"'prefix'"';"'"""
-    db_count = run_ssh(host_ip, psql_cmd, key_path)
+    # Database count via PostgreSQL
+    db_query_cmd = f"sudo python3 -c \"import psycopg2; env = dict(l.strip().split('=', 1) for l in open('/etc/inspection/app.env') if '=' in l); conn = psycopg2.connect(host=env['DB_HOST'], user=env['DB_USER'], password=env['DB_PASSWORD'], dbname=env['DB_NAME'], sslmode='verify-full', sslrootcert='/etc/inspection/rds-ca.pem'); cur = conn.cursor(); cur.execute('SELECT count(*) FROM events WHERE event_id LIKE %s', ('{prefix}-%',)); print(cur.fetchone()[0])\""
+    db_count = run_ssh(host_ip, db_query_cmd, key_path)
     print(f"db_count={db_count}")
 
     # 4. Filter query: GET /events?device_id=<代號>-d01

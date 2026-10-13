@@ -21,10 +21,18 @@ def run_ssh(host_ip, remote_cmd, key_path=None, stdin_data=None, user="ec2-user"
     if key_path:
         args.extend(["-i", str(key_path)])
     args.extend([f"{user}@{host_ip}", remote_cmd])
-    res = subprocess.run(args, input=stdin_data, text=True, capture_output=True, check=False)
+    stdin_bytes = None
+    if stdin_data is not None:
+        if isinstance(stdin_data, str):
+            stdin_bytes = stdin_data.replace("\r\n", "\n").encode("utf-8")
+        else:
+            stdin_bytes = stdin_data
+    res = subprocess.run(args, input=stdin_bytes, capture_output=True, check=False)
+    stdout_str = res.stdout.decode("utf-8", errors="replace").strip()
+    stderr_str = res.stderr.decode("utf-8", errors="replace").strip()
     if res.returncode != 0:
-        print(f"SSH command failed (code {res.returncode}): {res.stderr.strip()}", file=sys.stderr)
-    return res.returncode, res.stdout.strip()
+        print(f"SSH command failed (code {res.returncode}): {stderr_str}", file=sys.stderr)
+    return res.returncode, stdout_str
 
 
 def main():

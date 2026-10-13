@@ -168,7 +168,8 @@ def up(args):
     current = get_instance(ctx["region"], instance_id)
     if not current:
         raise lab.LabError("Created instance could not be read back")
-    block = current.get("BlockDeviceMappings", [{}])[0]
+    mappings = current.get("BlockDeviceMappings") or [{}]
+    block = mappings[0] if mappings else {}
     update_resources(resources_path, resources, root_volume_id=block.get("Ebs", {}).get("VolumeId"),
                      eni_id=current.get("NetworkInterfaces", [{}])[0].get("NetworkInterfaceId"))
     wait_for_state(ctx["region"], instance_id, "running")

@@ -67,8 +67,24 @@ def profile_update(path, section, values):
     parser.write(buf)
     atomic_write(path, buf.getvalue())
 
+import shutil
+
+
+def aws_binary():
+    which = shutil.which("aws") or shutil.which("aws.exe")
+    if which:
+        return which
+    win_path = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "Amazon" / "AWSCLIV2" / "aws.exe"
+    if win_path.exists():
+        return str(win_path)
+    return "aws"
+
+
 def clean_env(region, credentials=None, config=None):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("AWS_", "TF_VAR_", "TF_CLI_ARGS", "TF_LOG"))}
+    aws_prog_dir = str(Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "Amazon" / "AWSCLIV2")
+    if os.path.exists(aws_prog_dir) and aws_prog_dir not in env.get("PATH", ""):
+        env["PATH"] = aws_prog_dir + os.pathsep + env.get("PATH", "")
     env.update(AWS_PROFILE=PROFILE, AWS_REGION=region, AWS_DEFAULT_REGION=region,
                AWS_SHARED_CREDENTIALS_FILE=str(credentials or aws_dir() / "credentials"),
                AWS_CONFIG_FILE=str(config or aws_dir() / "config"), AWS_PAGER="",
@@ -84,7 +100,7 @@ def error_code(stderr):
     return "CommandFailed"
 
 def run_aws(args, region, env=None, raw=False):
-    command = ["aws", "--profile", PROFILE, "--region", region, "--no-cli-pager", *args]
+    command = [aws_binary(), "--profile", PROFILE, "--region", region, "--no-cli-pager", *args]
     if not raw:
         command.extend(["--output", "json"])
     try:

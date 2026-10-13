@@ -1,0 +1,7 @@
+{
+  "event_id": "g06-1-0003",
+  "device_id": "g06-d01",
+  "observed_at": "2026-10-13T10:00:00+08:00",
+  "type": "status",
+  "extra_hack": "malicious"
+}

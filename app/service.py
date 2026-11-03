@@ -183,6 +183,9 @@ class DatabaseManager:
                     );
                     """
                 )
+                # 照片改存私有 S3：資料列只留關聯與摘要；先前存在 RDS 的照片（s3_key 為空）仍可讀回
+                cur.execute("ALTER TABLE event_photos ADD COLUMN IF NOT EXISTS s3_key VARCHAR(200);")
+                cur.execute("ALTER TABLE event_photos ALTER COLUMN data DROP NOT NULL;")
             self.conn.commit()
             self.configured = True
         except Exception:
@@ -205,31 +208,36 @@ class DatabaseManager:
             return None
 
     @locked
-    def put_photo(self, event_id, jpeg, sha, width, height, created_at):
-        """Return 'created' | 'duplicate' | 'conflict' | None(database error)."""
+    def put_photo(self, event_id, jpeg, sha, width, height, created_at, blobs=None):
+        """Return 'created' | 'duplicate' | 'conflict' | None(storage or database error).
+
+        With a blob store the JPEG goes to private S3 and the row keeps only the key and digest.
+        """
         conn = self.get_connection()
         if not conn:
             return None
         try:
             with conn.cursor() as cur:
+                cur.execute("SELECT sha256 FROM event_photos WHERE event_id = %s;", (event_id,))
+                row = cur.fetchone()
+                if row:                      # 已有照片：同內容回 duplicate，不同內容回 conflict，不碰 S3
+                    conn.commit()
+                    return "duplicate" if row[0].strip() == sha else "conflict"
+                key = None
+                if blobs:
+                    key = w09_media.photo_key(event_id)
+                    blobs.put(key, jpeg, sha)
                 cur.execute(
                     """
-                    INSERT INTO event_photos (event_id, content_type, size_bytes, sha256, width, height, data, created_at)
-                    VALUES (%s, 'image/jpeg', %s, %s, %s, %s, %s, %s)
+                    INSERT INTO event_photos (event_id, content_type, size_bytes, sha256, width, height, data, created_at, s3_key)
+                    VALUES (%s, 'image/jpeg', %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (event_id) DO NOTHING RETURNING event_id;
                     """,
-                    (event_id, len(jpeg), sha, width, height, psycopg2.Binary(jpeg), created_at),
+                    (event_id, len(jpeg), sha, width, height, None if key else psycopg2.Binary(jpeg), created_at, key),
                 )
                 inserted = cur.fetchone() is not None
-                existing = None
-                if not inserted:
-                    cur.execute("SELECT sha256 FROM event_photos WHERE event_id = %s;", (event_id,))
-                    row = cur.fetchone()
-                    existing = row[0].strip() if row else None
             conn.commit()
-            if inserted:
-                return "created"
-            return "duplicate" if existing == sha else "conflict"
+            return "created" if inserted else "duplicate"
         except Exception:
             conn.rollback()
             return None
@@ -251,17 +259,27 @@ class DatabaseManager:
             return None
 
     @locked
-    def photo_data(self, event_id):
-        """(bytes, sha256) | False | None(database error)."""
+    def photo_data(self, event_id, blobs=None):
+        """(bytes, sha256) | False | None(storage or database error)."""
         conn = self.get_connection()
         if not conn:
             return None
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT data, sha256 FROM event_photos WHERE event_id = %s;", (event_id,))
+                cur.execute("SELECT data, sha256, s3_key FROM event_photos WHERE event_id = %s;", (event_id,))
                 row = cur.fetchone()
             conn.commit()
-            return (bytes(row[0]), row[1].strip()) if row else False
+            if not row:
+                return False
+            sha = row[1].strip()
+            if row[2]:
+                if not blobs:
+                    return None
+                data = blobs.get(row[2])
+                if w09_media.photo_sha256(data) != sha:      # 讀回的內容必須與入庫摘要一致
+                    return None
+                return data, sha
+            return bytes(row[0]), sha
         except Exception:
             conn.rollback()
             return None
@@ -442,7 +460,7 @@ def validate_event_payload(body_bytes, content_type):
     return 200, data
 
 
-def make_server(version_file, port=8080):
+def make_server(version_file, port=8080, blob_store=None):
     version = Path(version_file).read_text(encoding="utf-8").strip()
     if not re.fullmatch(r"[0-9a-f]{40}", version):
         raise ValueError("version must contain the deployed 40-character Git commit SHA")
@@ -451,6 +469,10 @@ def make_server(version_file, port=8080):
     db = DatabaseManager()
     memory_events = {}
     memory_photos = {}
+    # 照片存放：有設定 W09_S3_BUCKET 就存私有 S3；否則沿用資料庫（或記憶體）內存放
+    blobs = blob_store
+    if blobs is None and os.environ.get("W09_S3_BUCKET"):
+        blobs = w09_media.S3Blobs(os.environ["W09_S3_BUCKET"])
 
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
@@ -531,7 +553,7 @@ def make_server(version_file, port=8080):
                     return self.send_json(503, {"error": "database_unavailable"})
             else:
                 meta = memory_photos.get(event_id)
-                meta = {"sha256": meta["sha256"], "size_bytes": len(meta["data"])} if meta else False
+                meta = {"sha256": meta["sha256"], "size_bytes": meta["size"]} if meta else False
             self.send_json(200, {
                 "event_id": ev["event_id"],
                 "device_id": ev["device_id"],
@@ -571,11 +593,19 @@ def make_server(version_file, port=8080):
             sha = w09_media.photo_sha256(data)
             created_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
             if db.configured:
-                outcome = db.put_photo(event_id, data, sha, dims[0], dims[1], created_at)
+                outcome = db.put_photo(event_id, data, sha, dims[0], dims[1], created_at, blobs)
                 if outcome is None:
-                    return self.send_json(503, {"error": "database_unavailable"})
+                    return self.send_json(503, {"error": "storage_unavailable"})
             elif event_id not in memory_photos:
-                memory_photos[event_id] = {"data": data, "sha256": sha}
+                entry = {"data": data, "sha256": sha, "size": len(data), "key": None}
+                if blobs:
+                    try:
+                        entry["key"] = w09_media.photo_key(event_id)
+                        blobs.put(entry["key"], data, sha)
+                        entry["data"] = None
+                    except Exception:
+                        return self.send_json(503, {"error": "storage_unavailable"})
+                memory_photos[event_id] = entry
                 outcome = "created"
             else:
                 outcome = "duplicate" if memory_photos[event_id]["sha256"] == sha else "conflict"
@@ -590,12 +620,18 @@ def make_server(version_file, port=8080):
             if not w09_media.EVENT_ID_RE.fullmatch(event_id):
                 return self.send_json(400, {"error": "invalid_format", "field": "event_id"})
             if db.configured:
-                found = db.photo_data(event_id)
+                found = db.photo_data(event_id, blobs)
                 if found is None:
-                    return self.send_json(503, {"error": "database_unavailable"})
+                    return self.send_json(503, {"error": "storage_unavailable"})
             else:
                 mem = memory_photos.get(event_id)
-                found = (mem["data"], mem["sha256"]) if mem else False
+                found = False
+                if mem:
+                    try:
+                        raw_bytes = mem["data"] if mem["data"] is not None else blobs.get(mem["key"])
+                    except Exception:
+                        return self.send_json(503, {"error": "storage_unavailable"})
+                    found = (raw_bytes, mem["sha256"])
             if found is False:
                 return self.send_json(404, {"error": "not_found"})
             data, sha = found
@@ -621,7 +657,8 @@ def make_server(version_file, port=8080):
                     "started_at": started,
                     "auth_configured": bool(reporter_token and operator_token),
                     "db_configured": db.configured,
-                    "w09_configured": bool(os.environ.get("W09_DEVICE_TOKEN"))
+                    "w09_configured": bool(os.environ.get("W09_DEVICE_TOKEN")),
+                    "w09_photo_store": "s3" if blobs else "database"
                 }
                 return self.send_json(200, body)
 

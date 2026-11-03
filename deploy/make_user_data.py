@@ -37,7 +37,7 @@ def build(commit):
     payload = base64.b64encode(gzip.compress(archive.getvalue(), mtime=0)).decode()
     script = """#!/bin/bash
 set -euo pipefail
-dnf install -y nginx python3 python3-pip python3-psycopg2 postgresql15
+dnf install -y nginx python3 python3-pip python3-psycopg2 python3-boto3 postgresql15
 install -d -m 755 /opt/inspection/vendor
 python3 -m pip install --disable-pip-version-check --target /opt/inspection/vendor paho-mqtt==2.1.0
 install -d -m 755 /etc/inspection

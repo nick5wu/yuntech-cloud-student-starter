@@ -80,11 +80,15 @@ class MediaApiTests(unittest.TestCase):
         self.td = tempfile.TemporaryDirectory()
         version = Path(self.td.name) / "version"
         version.write_text("a" * 40)
-        self.server = service.make_server(version, port=0)
+        self.blobs = self.make_blobs()
+        self.server = service.make_server(version, port=0, blob_store=self.blobs)
         self.worker = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.worker.start()
         self.port = self.server.server_port
         self.rep, self.op, self.dev = (os.environ["REPORTER_TOKEN"], os.environ["OPERATOR_TOKEN"], os.environ["W09_DEVICE_TOKEN"])
+
+    def make_blobs(self):
+        return None            # 預設：照片留在資料庫／記憶體；子類別改用假的 S3
 
     def tearDown(self):
         self.server.shutdown()
@@ -206,6 +210,59 @@ class MediaApiTests(unittest.TestCase):
     def test_health_reports_w09_flag(self):
         status, _, raw = self.call("/health")
         self.assertTrue(json.loads(raw)["w09_configured"])
+
+
+class FakeBlobs:
+    """測試用的 S3 物件存放區：只記錄 put/get，可模擬故障與內容被竄改。"""
+
+    def __init__(self):
+        self.objects, self.fail, self.puts = {}, False, 0
+
+    def put(self, key, data, sha):
+        if self.fail:
+            raise RuntimeError("s3 down")
+        self.puts += 1
+        self.objects[key] = bytes(data)
+
+    def get(self, key):
+        if self.fail:
+            raise RuntimeError("s3 down")
+        return self.objects[key]
+
+
+class MediaS3Tests(MediaApiTests):
+    """同一組 API 行為，但照片存在（假的）私有 S3。"""
+
+    def make_blobs(self):
+        return FakeBlobs()
+
+    def test_photo_bytes_live_in_blob_store_under_event_key(self):
+        self.post_event("ev-s3-1")
+        jpeg = fake_jpeg(filler=b"")
+        self.assertEqual(self.upload("ev-s3-1", jpeg)[0], 201)
+        self.assertEqual(self.blobs.objects, {"w09/events/ev-s3-1.jpg": jpeg})
+        self.upload("ev-s3-1", jpeg)                                   # 原內容重送：不重複寫 S3
+        self.assertEqual(self.blobs.puts, 1)
+        self.assertEqual(self.upload("ev-s3-1", fake_jpeg(filler=b"	"))[0], 409)
+        self.assertEqual(self.blobs.objects["w09/events/ev-s3-1.jpg"], jpeg)   # 衝突不覆寫原圖
+
+    def test_storage_failure_is_503_and_leaves_no_photo(self):
+        self.post_event("ev-s3-2")
+        self.blobs.fail = True
+        self.assertEqual(self.upload("ev-s3-2", fake_jpeg())[0], 503)
+        self.blobs.fail = False
+        self.assertEqual(self.receipt("ev-s3-2")[1]["photo_state"], "none")
+        self.assertEqual(self.upload("ev-s3-2", fake_jpeg())[0], 201)  # 故障排除後以原內容重試成功
+
+    def test_readback_failure_is_503(self):
+        self.post_event("ev-s3-3")
+        self.upload("ev-s3-3", fake_jpeg())
+        self.blobs.fail = True
+        self.assertEqual(self.call("/w09/events/ev-s3-3/photo", token=self.op)[0], 503)
+
+    def test_health_reports_s3_store(self):
+        _, _, raw = self.call("/health")
+        self.assertEqual(json.loads(raw)["w09_photo_store"], "s3")
 
 
 if __name__ == "__main__":

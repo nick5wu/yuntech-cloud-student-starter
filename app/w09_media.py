@@ -4,6 +4,7 @@ Pure functions only (no network, no database) so they are easy to test.
 """
 from datetime import datetime, timezone
 import hashlib
+import os
 import re
 
 MAX_PHOTO_BYTES = 1024 * 1024        # 與 tools/w09_check.py 的讀回上限一致
@@ -78,3 +79,31 @@ def event_fingerprint(device_id, observed_at, ev_type, note):
 
 def photo_sha256(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def photo_key(event_id):
+    """S3 物件鍵；event_id 已先通過 EVENT_ID_RE，不含路徑字元。"""
+    if not EVENT_ID_RE.fullmatch(event_id):
+        raise ValueError("invalid event id")
+    return f"w09/events/{event_id}.jpg"
+
+
+class S3Blobs:
+    """私有 bucket 的照片物件存取（憑證來自 EC2 的 instance profile，程式裡沒有金鑰）。"""
+
+    def __init__(self, bucket, client=None):
+        if client is None:
+            import boto3
+            from botocore.config import Config
+            client = boto3.client(
+                "s3", region_name=os.environ.get("AWS_REGION", "us-east-1"),
+                config=Config(retries={"max_attempts": 3}, connect_timeout=5, read_timeout=10))
+        self.bucket = bucket
+        self.client = client
+
+    def put(self, key, data, sha):
+        self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType="image/jpeg",
+                               Metadata={"sha256": sha}, ServerSideEncryption="AES256")
+
+    def get(self, key):
+        return self.client.get_object(Bucket=self.bucket, Key=key)["Body"].read()

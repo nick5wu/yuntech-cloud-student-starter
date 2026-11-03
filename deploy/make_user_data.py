@@ -17,6 +17,10 @@ def build(commit):
     files = {}
     for name in ("app/service.py", "deploy/nginx.conf"):
         files[name] = subprocess.check_output(["git", "show", sha + ":" + name], cwd=ROOT)
+    # W9：照片 API 的輔助模組；舊 commit 沒有就跳過（service.py 舊版也不會 import 它）
+    if subprocess.run(["git", "cat-file", "-e", sha + ":app/w09_media.py"], cwd=ROOT,
+                      stderr=subprocess.DEVNULL).returncode == 0:
+        files["app/w09_media.py"] = subprocess.check_output(["git", "show", sha + ":app/w09_media.py"], cwd=ROOT)
     # W6：consumer.py 寫好、commit 之後才打包；還沒有就跳過，不影響服務本身
     if subprocess.run(["git", "cat-file", "-e", sha + ":app/consumer.py"], cwd=ROOT,
                       stderr=subprocess.DEVNULL).returncode == 0:

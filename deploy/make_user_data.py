@@ -2,8 +2,8 @@
 """Package ONLY allowlisted committed files. No cloud calls, secrets or git clone."""
 import argparse
 import base64
-import gzip
 import io
+import lzma
 from pathlib import Path
 import subprocess
 import tarfile
@@ -34,7 +34,8 @@ def build(commit):
             info.mode = 0o644
             info.mtime = 0
             tf.addfile(info, io.BytesIO(data))
-    payload = base64.b64encode(gzip.compress(archive.getvalue(), mtime=0)).decode()
+    # xz 比 gzip 小約 8%；加入 W9 後 gzip 版會超過 16 KB 的課程 user-data 上限
+    payload = base64.b64encode(lzma.compress(archive.getvalue(), preset=9 | lzma.PRESET_EXTREME)).decode()
     script = """#!/bin/bash
 set -euo pipefail
 dnf install -y nginx python3 python3-pip python3-psycopg2 python3-boto3 postgresql15
@@ -45,7 +46,7 @@ curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 https://
 chmod 644 /etc/inspection/rds-ca.pem
 id inspection >/dev/null 2>&1 || useradd --system --no-create-home --shell /sbin/nologin inspection
 install -d -m 755 /opt/inspection
-base64 --decode <<'W3_ARCHIVE' | tar -xz -C /opt/inspection
+base64 --decode <<'W3_ARCHIVE' | tar -xJ -C /opt/inspection
 PAYLOAD
 W3_ARCHIVE
 install -m 644 /opt/inspection/deploy/nginx.conf /etc/nginx/nginx.conf

@@ -29,7 +29,7 @@ arduino-cli compile --fqbn "esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,USBMode=
 
 - 組別：`GROUP_ID=g06`、`DEVICE_ID=g06-esp32-s3-cam`。
 - 設定寫入板子：`python tools/w09_provision.py --port <COM> --all --api-base https://<EC2公開DNS>`（Wi-Fi 密碼隱藏輸入；其餘從 `.local/` 讀，不顯示）。
-- 雲端：`app/service.py` 的 `/w09` 端點；照片存在 RDS（EC2 沒有 instance profile，無法用 S3）；HTTPS 用自建 CA（`.local/w09-tls/ca.pem`），EC2 重啟後 DNS 會變，需重跑 `deploy/w09_tls.py` 與 `deploy/w09_up.py`。
+- 雲端：`app/service.py` 的 `/w09` 端點；照片存在私有 S3（`deploy/w09_s3.py`，EC2 用 LabInstanceProfile），RDS 只留關聯與摘要，先前存在 RDS 的照片仍可讀；HTTPS 用自建 CA（`.local/w09-tls/ca.pem`），EC2 重啟後 DNS 會變，需重跑 `deploy/w09_tls.py` 與 `deploy/w09_up.py`。
 - 收據指紋：`SHA-256(device_id \n observed_at(UTC) \n type \n note)`，與 `app/w09_media.py` 一致；若教師公布不同規格，兩邊一起改。
 
 ## 尚未完成

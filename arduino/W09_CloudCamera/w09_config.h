@@ -7,9 +7,9 @@
 #define PIN_LED    2   // 擴充板 D12 → GPIO2
 static const int LED_ON = HIGH;       // 本課擴充板高電位有效；相反就改 LOW
 
-// TODO(你的 W7 T2 實測)：旋鈕端點，每塊板不同，請填自己量到的值。
-static const int RAW_MIN = 180;       // ← 範例值，不是你的
-static const int RAW_MAX = 3900;      // ← 範例值，不是你的
+// 旋鈕端點：2026-11-03 在本組板子實測（轉到最左／最右，各連續 5 筆穩定）。每塊板不同。
+static const int RAW_MIN = 0;
+static const int RAW_MAX = 4095;
 static const int TH_MIN = 30, TH_MAX = 90;
 
 // TODO(你們組)：組別與裝置名稱。device_id 限 [A-Za-z0-9_-] 1~32 字。

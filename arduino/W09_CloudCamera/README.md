@@ -25,9 +25,15 @@ arduino-cli compile --fqbn "esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,USBMode=
 
 本地網頁：`/status`（JSON）、`/photo`（最近一張）。
 
-## 尚未完成（需教師規格或本組實測值）
+## 配置與雲端（本組自建，不是教師提供的服務）
 
-- `w09_config.h`：`GROUP_ID`、`DEVICE_ID`、`RAW_MIN`／`RAW_MAX`（目前是範例值）。
-- NVS 配置（Wi-Fi、入口、topic、client ID、token、CA、裝置憑證／私鑰）：鍵名是暫定的，需對齊教師配置工具；寫入步驟尚未做。
-- 收據 `event_fingerprint` 演算法（`w09_logic.h` 的 `fingerprintInput`）：欄位順序與格式待教師確認。
-- 尚未在實體板子上測試（相機、DHT、TLS、MQTT、HTTPS 均只通過編譯）。
+- 組別：`GROUP_ID=g06`、`DEVICE_ID=g06-esp32-s3-cam`。
+- 設定寫入板子：`python tools/w09_provision.py --port <COM> --all --api-base https://<EC2公開DNS>`（Wi-Fi 密碼隱藏輸入；其餘從 `.local/` 讀，不顯示）。
+- 雲端：`app/service.py` 的 `/w09` 端點；照片存在 RDS（EC2 沒有 instance profile，無法用 S3）；HTTPS 用自建 CA（`.local/w09-tls/ca.pem`），EC2 重啟後 DNS 會變，需重跑 `deploy/w09_tls.py` 與 `deploy/w09_up.py`。
+- 收據指紋：`SHA-256(device_id \n observed_at(UTC) \n type \n note)`，與 `app/w09_media.py` 一致；若教師公布不同規格，兩邊一起改。
+
+## 尚未完成
+
+- `w09_config.h` 的 `RAW_MIN`／`RAW_MAX` 仍是範例值（W7 實測值不在 repo）。
+- 尚未在實體板子上測試（相機、DHT、TLS、MQTT、HTTPS 均只通過編譯；雲端端點已用真實權杖驗證權限分離）。
+- 板子走手機熱點時，需把熱點的公網 IP `/32` 加進安全群組 443（`deploy/w09_up.py --allow <IP>/32 --apply`）。

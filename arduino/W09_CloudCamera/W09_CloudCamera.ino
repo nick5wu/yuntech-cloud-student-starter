@@ -138,10 +138,12 @@ static void setPh(PhotoStage s, const char* why = "") {
 }
 
 // ===================== W7：輸入 =====================
+static int knobRaw = 0;   // 夾限前的原始值，量端點用（狀態 JSON 的 knob_raw）
 static int readThreshold() {
   long sum = 0;
   for (int i = 0; i < 8; i++) sum += analogRead(PIN_KNOB);
-  int raw = constrain((int)(sum / 8), RAW_MIN, RAW_MAX);
+  knobRaw = (int)(sum / 8);
+  int raw = constrain(knobRaw, RAW_MIN, RAW_MAX);
   return map(raw, RAW_MIN, RAW_MAX, TH_MIN, TH_MAX);
 }
 static void readSensor() {
@@ -422,7 +424,7 @@ static void buildStatus(String& out) {
   d["group_id"] = GROUP_ID; d["device_id"] = DEVICE_ID; d["boot_id"] = bootId;
   d["uptime_ms"] = millis();
   if (sensorOk) { d["temp_c"] = lastT; d["humidity_pct"] = lastH; } else { d["temp_c"] = nullptr; d["humidity_pct"] = nullptr; }
-  d["threshold_pct"] = curTh; d["sensor_ok"] = sensorOk; d["state"] = stateName(state);
+  d["threshold_pct"] = curTh; d["knob_raw"] = knobRaw; d["sensor_ok"] = sensorOk; d["state"] = stateName(state);
   d["test_mode"] = testMode;
   d["triggers"] = det.fired; d["rejected_busy"] = rejBusy; d["rejected_time"] = rejTime; d["dropped"] = dropped;
   d["last_reject"] = lastReject;
